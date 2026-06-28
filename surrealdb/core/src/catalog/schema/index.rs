@@ -145,7 +145,7 @@ impl ToSql for IndexDefinition {
 	}
 }
 
-#[revisioned(revision = 2)]
+#[revisioned(revision = 3)]
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub(crate) enum Index {
 	/// (Basic) non unique
@@ -162,6 +162,9 @@ pub(crate) enum Index {
 	/// DiskANN index for distance-based metrics
 	#[revision(start = 2)]
 	DiskAnn(DiskAnnParams),
+	/// Qortex (fused Qdrant engine) vector index for distance-based metrics
+	#[revision(start = 3)]
+	Qortex(QortexParams),
 }
 
 impl Index {
@@ -171,6 +174,7 @@ impl Index {
 			Self::Uniq => sql::index::Index::Uniq,
 			Self::Hnsw(params) => sql::index::Index::Hnsw(params.clone().into()),
 			Self::DiskAnn(params) => sql::index::Index::DiskAnn(params.clone().into()),
+			Self::Qortex(params) => sql::index::Index::Qortex(params.clone().into()),
 			Self::FullText(params) => sql::index::Index::FullText(params.clone().into()),
 			Self::Count(cond) => sql::index::Index::Count(cond.clone().map(Into::into)),
 		}
@@ -454,6 +458,20 @@ pub(crate) struct DiskAnnParams {
 	pub l_build: u16,
 	/// DiskANN pruning alpha.
 	pub alpha: Number,
+	/// Whether to use vector hashes for vector retrieval.
+	pub use_hashed_vector: bool,
+}
+
+/// Qortex (fused Qdrant engine) vector index parameters.
+#[revisioned(revision = 1)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub(crate) struct QortexParams {
+	/// The dimension of the index.
+	pub dimension: u16,
+	/// The distance metric to use.
+	pub distance: Distance,
+	/// The vector type to use.
+	pub vector_type: VectorType,
 	/// Whether to use vector hashes for vector retrieval.
 	pub use_hashed_vector: bool,
 }

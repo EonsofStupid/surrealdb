@@ -12,7 +12,9 @@ use crate::sql::changefeed::ChangeFeed;
 use crate::sql::data::Assignment;
 use crate::sql::field::Selector;
 use crate::sql::filter::Filter;
-use crate::sql::index::{DiskAnnParams, Distance, FullTextParams, HnswParams, VectorType};
+use crate::sql::index::{
+	DiskAnnParams, Distance, FullTextParams, HnswParams, QortexParams, VectorType,
+};
 use crate::sql::language::Language;
 use crate::sql::literal::ObjectEntry;
 use crate::sql::lookup::{LookupKind, LookupSubject};
@@ -1784,6 +1786,29 @@ fn parse_define_index() {
 				l_build: 100,
 				alpha: 1.2.into(),
 				use_hashed_vector: false,
+			}),
+			comment: Expr::Literal(Literal::None),
+			concurrently: false
+		})))
+	);
+
+	let res = syn::parse_with(
+		r#"DEFINE INDEX index ON TABLE table FIELDS a QORTEX DIMENSION 128 DISTANCE COSINE TYPE F32 HASHED_VECTOR"#.as_bytes(),
+		async |parser, stk| parser.parse_expr_inherit(stk).await,
+	)
+	.unwrap();
+	assert_eq!(
+		res,
+		Expr::Define(Box::new(DefineStatement::Index(DefineIndexStatement {
+			kind: DefineKind::Default,
+			name: Expr::Idiom(Idiom::field("index".to_string())),
+			what: Expr::Table("table".into()),
+			cols: vec![Expr::Idiom(Idiom(vec![Part::Field(Strand::new_static("a"))]))],
+			index: Index::Qortex(QortexParams {
+				dimension: 128,
+				distance: Distance::Cosine,
+				vector_type: VectorType::F32,
+				use_hashed_vector: true,
 			}),
 			comment: Expr::Literal(Literal::None),
 			concurrently: false

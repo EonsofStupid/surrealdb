@@ -24,12 +24,16 @@ use segment::types::{
 };
 
 /// A vector index backed by an embedded Qdrant segment (the qortex engine).
+// Inc 1 core: exercised by the knn unit test below; constructed + driven by the
+// store layer in Inc 3 (see docs/QORTEX_FUSION_BUILD_SPEC.md). Allow until then.
+#[allow(dead_code)]
 pub(crate) struct QortexIndex {
 	segment: Segment,
 	/// Monotonic op number Qdrant requires per write (its WAL sequence).
 	op: u64,
 }
 
+#[allow(dead_code)]
 impl QortexIndex {
 	/// Open (or create) a qortex-backed vector index at `path` for `dim`-d vectors.
 	pub(crate) fn open(path: &Path, dim: usize, distance: Distance) -> anyhow::Result<Self> {

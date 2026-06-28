@@ -127,6 +127,9 @@ impl<'a> IndexOperation<'a> {
 			Index::FullText(p) => self.index_fulltext(stk, p, require_compaction).await,
 			Index::Hnsw(p) => self.index_hnsw(p, require_compaction).await,
 			Index::DiskAnn(p) => self.index_diskann(p, require_compaction).await,
+			Index::Qortex(_) => Err(anyhow::anyhow!(
+				"QORTEX index write not yet wired (Inc 3) — see docs/QORTEX_FUSION_BUILD_SPEC.md"
+			)),
 			Index::Count(c) => self.index_count(stk, c.as_ref(), require_compaction).await,
 		}
 	}

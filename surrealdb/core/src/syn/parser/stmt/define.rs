@@ -6,7 +6,7 @@ use crate::sql::access::AccessDuration;
 use crate::sql::access_type::JwtAccessVerify;
 use crate::sql::base::Base;
 use crate::sql::filter::Filter;
-use crate::sql::index::{DiskAnnParams, Distance, HnswParams, VectorType};
+use crate::sql::index::{DiskAnnParams, Distance, HnswParams, QortexParams, VectorType};
 use crate::sql::kind::KindLiteral;
 use crate::sql::statements::define::config::api::{ApiConfig, Middleware};
 use crate::sql::statements::define::config::defaults::DefaultConfig;
@@ -1326,6 +1326,52 @@ impl Parser<'_> {
 						use_hashed_vector,
 					});
 				}
+				token
+					if {
+						let span = self.peek().span;
+						is_identifier_token(
+							self,
+							Token {
+								kind: token,
+								span,
+							},
+							"QORTEX",
+						)
+					} =>
+				{
+					self.pop_peek();
+					expected!(self, t!("DIMENSION"));
+					let dimension = self.next_token_value()?;
+					let mut distance = Distance::Euclidean;
+					let mut vector_type = VectorType::F32;
+					let mut use_hashed_vector = false;
+					loop {
+						let peek = self.peek();
+						match peek.kind {
+							t!("DISTANCE") => {
+								self.pop_peek();
+								distance = self.parse_distance()?;
+							}
+							t!("TYPE") => {
+								self.pop_peek();
+								vector_type = self.parse_vector_type()?;
+							}
+							t!("HASHED_VECTOR") => {
+								self.pop_peek();
+								use_hashed_vector = true;
+							}
+							_ => {
+								break;
+							}
+						}
+					}
+					res.index = Index::Qortex(QortexParams {
+						dimension,
+						distance,
+						vector_type,
+						use_hashed_vector,
+					});
+				}
 				t!("CONCURRENTLY") => {
 					self.pop_peek();
 					res.concurrently = true;
@@ -1343,7 +1389,7 @@ impl Parser<'_> {
 					bail!("Cannot create a count index with fields", @field_span);
 				}
 			}
-			(field_span, Index::FullText(_) | Index::Hnsw(_) | Index::DiskAnn(_)) => {
+			(field_span, Index::FullText(_) | Index::Hnsw(_) | Index::DiskAnn(_) | Index::Qortex(_)) => {
 				if res.cols.len() != 1 {
 					if let Some(field_span) = field_span {
 						bail!("Expected one column, found {}", res.cols.len(), @field_span);

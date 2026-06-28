@@ -17,6 +17,8 @@ pub(crate) enum Index {
 	Hnsw(HnswParams),
 	/// DiskANN index for distance based metrics
 	DiskAnn(DiskAnnParams),
+	/// Qortex (fused Qdrant engine) vector index for distance based metrics
+	Qortex(QortexParams),
 	/// Index with Full-Text search capabilities - single writer
 	FullText(FullTextParams),
 	/// Count index
@@ -30,6 +32,7 @@ impl From<Index> for crate::catalog::Index {
 			Index::Uniq => Self::Uniq,
 			Index::Hnsw(p) => Self::Hnsw(p.into()),
 			Index::DiskAnn(p) => Self::DiskAnn(p.into()),
+			Index::Qortex(p) => Self::Qortex(p.into()),
 			Index::FullText(p) => Self::FullText(p.into()),
 			Index::Count(c) => Self::Count(c.map(Into::into)),
 		}
@@ -43,6 +46,7 @@ impl From<crate::catalog::Index> for Index {
 			crate::catalog::Index::Uniq => Self::Uniq,
 			crate::catalog::Index::Hnsw(p) => Self::Hnsw(p.into()),
 			crate::catalog::Index::DiskAnn(p) => Self::DiskAnn(p.into()),
+			crate::catalog::Index::Qortex(p) => Self::Qortex(p.into()),
 			crate::catalog::Index::FullText(p) => Self::FullText(p.into()),
 			crate::catalog::Index::Count(c) => Self::Count(c.map(Into::into)),
 		}
@@ -167,6 +171,41 @@ impl From<crate::catalog::DiskAnnParams> for DiskAnnParams {
 			degree: v.degree,
 			l_build: v.l_build,
 			alpha: v.alpha.into(),
+			use_hashed_vector: v.use_hashed_vector,
+		}
+	}
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub(crate) struct QortexParams {
+	/// The vector dimension.
+	pub dimension: u16,
+	/// The distance metric used by the qortex (fused Qdrant) index.
+	pub distance: Distance,
+	/// The element type used to encode vectors in the index.
+	pub vector_type: VectorType,
+	/// Whether vector-document mappings are keyed by vector hash.
+	pub use_hashed_vector: bool,
+}
+
+impl From<QortexParams> for crate::catalog::QortexParams {
+	fn from(v: QortexParams) -> Self {
+		crate::catalog::QortexParams {
+			dimension: v.dimension,
+			distance: v.distance.into(),
+			vector_type: v.vector_type.into(),
+			use_hashed_vector: v.use_hashed_vector,
+		}
+	}
+}
+
+impl From<crate::catalog::QortexParams> for QortexParams {
+	fn from(v: crate::catalog::QortexParams) -> Self {
+		Self {
+			dimension: v.dimension,
+			distance: v.distance.into(),
+			vector_type: v.vector_type.into(),
 			use_hashed_vector: v.use_hashed_vector,
 		}
 	}
@@ -337,6 +376,19 @@ impl ToSql for Index {
 					p.degree,
 					p.l_build,
 					p.alpha
+				);
+				if p.use_hashed_vector {
+					f.push_str(" HASHED_VECTOR")
+				}
+			}
+			Self::Qortex(p) => {
+				write_sql!(
+					f,
+					fmt,
+					"QORTEX DIMENSION {} DIST {} TYPE {}",
+					p.dimension,
+					p.distance,
+					p.vector_type
 				);
 				if p.use_hashed_vector {
 					f.push_str(" HASHED_VECTOR")

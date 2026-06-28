@@ -474,6 +474,9 @@ impl QueryExecutor {
 			Index::DiskAnn(_) => Ok(self.new_diskann_index_ann_iterator(irf)),
 			#[cfg(not(diskann))]
 			Index::DiskAnn(_) => Err(anyhow::anyhow!("DISKANN indexes require a 64-bit, non-WASM platform")),
+			Index::Qortex(_) => Err(anyhow::anyhow!(
+				"QORTEX index read not yet wired (Inc 3) — see docs/QORTEX_FUSION_BUILD_SPEC.md"
+			)),
 		}
 	}
 
