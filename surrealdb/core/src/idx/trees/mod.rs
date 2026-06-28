@@ -4,5 +4,6 @@ pub mod dynamicset;
 mod graph;
 pub mod hnsw;
 pub(in crate::idx) mod knn;
+pub(crate) mod qortex;
 pub mod store;
 pub mod vector;

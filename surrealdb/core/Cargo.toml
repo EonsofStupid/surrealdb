@@ -68,6 +68,10 @@ targets = []
 [dependencies]
 surrealdb-strand = { workspace = true }
 
+# qortex (Qdrant v1.18.2 fork) embedded vector engine — backs the QORTEX index (fusion path B)
+segment = { path = "../../../qortex/lib/segment" }
+common = { path = "../../../qortex/lib/common/common" }
+
 # External surreal crates
 surrealmx = { workspace = true, optional = true }
 surrealkv = { workspace = true, optional = true }
