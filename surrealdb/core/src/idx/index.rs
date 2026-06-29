@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::catalog::providers::TableProvider;
 use crate::catalog::{
 	DatabaseId, DiskAnnParams, FullTextParams, HnswParams, Index, IndexDefinition, NamespaceId,
-	TableId,
+	QortexParams, TableId,
 };
 use crate::ctx::FrozenContext;
 use crate::dbs::Options;
@@ -127,9 +127,7 @@ impl<'a> IndexOperation<'a> {
 			Index::FullText(p) => self.index_fulltext(stk, p, require_compaction).await,
 			Index::Hnsw(p) => self.index_hnsw(p, require_compaction).await,
 			Index::DiskAnn(p) => self.index_diskann(p, require_compaction).await,
-			Index::Qortex(_) => Err(anyhow::anyhow!(
-				"QORTEX index write not yet wired (Inc 3) — see docs/QORTEX_FUSION_BUILD_SPEC.md"
-			)),
+			Index::Qortex(p) => self.index_qortex(p).await,
 			Index::Count(c) => self.index_count(stk, c.as_ref(), require_compaction).await,
 		}
 	}
@@ -492,6 +490,24 @@ impl<'a> IndexOperation<'a> {
 		if old_values.is_some() || new_values.is_some() {
 			hnsw.index(self.ctx, &self.rid.key, old_values, new_values).await?;
 			*require_compaction = true;
+		}
+		Ok(())
+	}
+
+	/// Indexes one document into a QORTEX index.
+	///
+	/// Inc 3a indexes directly to KV (no async pending/compaction), so this does
+	/// not set `require_compaction`.
+	async fn index_qortex(&mut self, p: &QortexParams) -> Result<()> {
+		let qortex = self
+			.ctx
+			.get_index_stores()
+			.get_index_qortex(self.ns, self.db, self.ctx, self.tb, self.ix, p)
+			.await?;
+		let old_values = self.o.take();
+		let new_values = self.n.take();
+		if old_values.is_some() || new_values.is_some() {
+			qortex.index(self.ctx, &self.rid.key, old_values, new_values).await?;
 		}
 		Ok(())
 	}

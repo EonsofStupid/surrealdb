@@ -592,6 +592,7 @@ impl<'a> TreeBuilder<'a> {
 					..
 				} if *col == 0 => Self::eval_matches_operator(op, n),
 				Index::Hnsw(h) if *col == 0 => self.eval_hnsw_knn(e, op, n, h)?,
+				Index::Qortex(q) if *col == 0 => self.eval_qortex_knn(e, op, n, q)?,
 				Index::DiskAnn(d) if *col == 0 => self.eval_diskann_knn(e, op, n, d)?,
 				_ => None,
 			};
@@ -641,6 +642,35 @@ impl<'a> TreeBuilder<'a> {
 			NearestNeighbor::K(k, d) if *d == hnsw.distance => {
 				(*k, (*k).max(hnsw.ef_construction as u32))
 			}
+			_ => return Ok(None),
+		};
+
+		if let Node::Computed(v) = n {
+			let vec: Arc<Vec<Number>> = Arc::new(v.as_ref().clone().coerce_to()?);
+			self.knn_expressions.insert(Arc::clone(exp));
+			return Ok(Some(IndexOperator::Ann(vec, k, ef)));
+		}
+
+		Ok(None)
+	}
+
+	/// Matches a KNN expression against a QORTEX index and records the query vector expression.
+	///
+	/// QORTEX has no construction-time `ef`, so the `K(k, d)` form passes `ef = k`.
+	fn eval_qortex_knn(
+		&mut self,
+		exp: &Arc<Expr>,
+		op: &BinaryOperator,
+		n: &Node,
+		qortex: &catalog::QortexParams,
+	) -> Result<Option<IndexOperator>> {
+		let BinaryOperator::NearestNeighbor(nn) = op else {
+			return Ok(None);
+		};
+
+		let (k, ef) = match &**nn {
+			NearestNeighbor::Approximate(k, ef) => (*k, *ef),
+			NearestNeighbor::K(k, d) if *d == qortex.distance => (*k, *k),
 			_ => return Ok(None),
 		};
 

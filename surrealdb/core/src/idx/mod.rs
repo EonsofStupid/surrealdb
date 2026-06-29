@@ -57,6 +57,9 @@ use crate::key::index::ig::IndexAppending;
 use crate::key::index::ii::Ii;
 use crate::key::index::ip::Ip;
 use crate::key::index::is::Is;
+use crate::key::index::qi::Qi;
+use crate::key::index::qs::Qs;
+use crate::key::index::qv::{Qv, QvRoot};
 use crate::key::index::iv::Iv;
 use crate::key::index::td::{Td, TdRoot};
 use crate::key::index::tt::Tt;
@@ -284,6 +287,26 @@ impl IndexKeyBase {
 	#[cfg(diskann)]
 	fn new_ds_key(&self) -> Ds<'_> {
 		Ds::new(self.0.ns, self.0.db, &self.0.tb, self.0.ix)
+	}
+
+	/// Key storing the QORTEX next-point-id counter for one index.
+	fn new_qs_key(&self) -> Qs<'_> {
+		Qs::new(self.0.ns, self.0.db, &self.0.tb, self.0.ix)
+	}
+
+	/// Key mapping a record key to its QORTEX point-id.
+	fn new_qi_key<'a>(&'a self, id: &'a RecordIdKey) -> Qi<'a> {
+		Qi::new(self.0.ns, self.0.db, &self.0.tb, self.0.ix, id)
+	}
+
+	/// Key storing one QORTEX point payload (record id + vector) by point-id.
+	fn new_qv_key(&self, point_id: u64) -> Qv<'_> {
+		Qv::new(self.0.ns, self.0.db, &self.0.tb, self.0.ix, point_id)
+	}
+
+	/// Range covering every QORTEX point payload for one index (used by rebuild).
+	fn new_qv_range(&self) -> Result<Range<Key>> {
+		QvRoot::range(self.0.ns, self.0.db, &self.0.tb, self.0.ix)
 	}
 
 	fn new_ii_key(&self, doc_id: DocId) -> Ii<'_> {

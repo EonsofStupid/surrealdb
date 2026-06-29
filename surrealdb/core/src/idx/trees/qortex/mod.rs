@@ -8,6 +8,8 @@
 //! Uses the production constructor `build_segment` (not the `testing`-gated `build_simple_segment`).
 //! Inc 1 uses a `Plain` (exact) index to prove the embed + knn; Inc 2+ swaps in `Indexes::Hnsw`.
 
+pub(crate) mod index;
+
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -15,7 +17,9 @@ use common::counter::hardware_accumulator::HwMeasurementAcc;
 use common::counter::hardware_counter::HardwareCounterCell;
 use segment::data_types::query_context::QueryContext;
 use segment::data_types::vectors::{DEFAULT_VECTOR_NAME, QueryVector, only_default_vector};
-use segment::entry::entry_point::{ReadSegmentEntry as _, SegmentEntry as _};
+use segment::entry::entry_point::{
+	NonAppendableSegmentEntry as _, ReadSegmentEntry as _, SegmentEntry as _,
+};
 use segment::segment::Segment;
 use segment::segment_constructor::build_segment;
 use segment::types::{
@@ -23,19 +27,19 @@ use segment::types::{
 	VectorStorageType, WithPayload,
 };
 
-/// A vector index backed by an embedded Qdrant segment (the qortex engine).
-// Inc 1 core: exercised by the knn unit test below; constructed + driven by the
-// store layer in Inc 3 (see docs/QORTEX_FUSION_BUILD_SPEC.md). Allow until then.
-#[allow(dead_code)]
-pub(crate) struct QortexIndex {
+/// An in-RAM vector segment backed by an embedded Qdrant segment (the qortex engine).
+///
+/// This is the low-level engine wrapper. The store-level [`index::QortexIndex`]
+/// owns one of these behind a lock, keeps KV as the source of truth, and rebuilds
+/// the segment from KV on demand.
+pub(crate) struct QortexSegment {
 	segment: Segment,
 	/// Monotonic op number Qdrant requires per write (its WAL sequence).
 	op: u64,
 }
 
-#[allow(dead_code)]
-impl QortexIndex {
-	/// Open (or create) a qortex-backed vector index at `path` for `dim`-d vectors.
+impl QortexSegment {
+	/// Open (or create) a qortex-backed vector segment at `path` for `dim`-d vectors.
 	pub(crate) fn open(path: &Path, dim: usize, distance: Distance) -> anyhow::Result<Self> {
 		let config = SegmentConfig {
 			vector_data: HashMap::from([(
@@ -65,6 +69,18 @@ impl QortexIndex {
 		let hw = HardwareCounterCell::disposable();
 		self.segment.upsert_point(self.op, id.into(), only_default_vector(vector), &hw)?;
 		Ok(())
+	}
+
+	/// Delete a vector by id. Returns whether a point was actually removed.
+	// Engine primitive pairing with `insert`. The Inc 3a store layer keeps KV as
+	// the source of truth and rebuilds the segment from KV (rollback-safe), so it
+	// does not mutate the segment in place. Retained for the Inc 3b incremental
+	// (direct-mutation) path.
+	#[allow(dead_code)]
+	pub(crate) fn delete(&mut self, id: u64) -> anyhow::Result<bool> {
+		self.op += 1;
+		let hw = HardwareCounterCell::disposable();
+		Ok(self.segment.delete_point(self.op, id.into(), &hw)?)
 	}
 
 	/// k-nearest-neighbours for `vector` → (point id, score), best first.
@@ -97,7 +113,7 @@ mod tests {
 		let _ = std::fs::remove_dir_all(&dir);
 		std::fs::create_dir_all(&dir).unwrap();
 
-		let mut idx = QortexIndex::open(&dir, 4, Distance::Cosine).unwrap();
+		let mut idx = QortexSegment::open(&dir, 4, Distance::Cosine).unwrap();
 		idx.insert(1, &[1.0, 0.0, 0.0, 0.0]).unwrap();
 		idx.insert(2, &[0.0, 1.0, 0.0, 0.0]).unwrap();
 		idx.insert(3, &[0.95, 0.05, 0.0, 0.0]).unwrap();

@@ -2,6 +2,7 @@
 pub(crate) mod diskann;
 pub(crate) mod hnsw;
 mod mapper;
+pub(crate) mod qortex;
 
 use std::sync::Arc;
 
@@ -10,7 +11,8 @@ use anyhow::Result;
 #[cfg(diskann)]
 use crate::catalog::DiskAnnParams;
 use crate::catalog::{
-	DatabaseId, HnswParams, Index, IndexDefinition, NamespaceId, TableDefinition, TableId,
+	DatabaseId, HnswParams, Index, IndexDefinition, NamespaceId, QortexParams, TableDefinition,
+	TableId,
 };
 use crate::ctx::FrozenContext;
 use crate::idx::IndexKeyBase;
@@ -21,6 +23,7 @@ use crate::idx::trees::hnsw::cache::VectorCache;
 use crate::idx::trees::store::diskann::{DiskAnnIndexes, SharedDiskAnnIndex};
 use crate::idx::trees::store::hnsw::{HnswIndexes, SharedHnswIndex};
 use crate::idx::trees::store::mapper::Mappers;
+use crate::idx::trees::store::qortex::{QortexIndexes, SharedQortexIndex};
 
 #[derive(Clone)]
 pub struct IndexStores(Arc<Inner>);
@@ -32,6 +35,7 @@ struct Inner {
 	#[cfg(diskann)]
 	diskann_cache: DiskAnnCache,
 	hnsw_indexes: HnswIndexes,
+	qortex_indexes: QortexIndexes,
 	mappers: Mappers,
 	vector_cache: VectorCache,
 }
@@ -46,6 +50,7 @@ impl IndexStores {
 			#[cfg(diskann)]
 			diskann_cache: DiskAnnCache::new(diskann_cache_size),
 			hnsw_indexes: HnswIndexes::default(),
+			qortex_indexes: QortexIndexes::default(),
 			mappers: Mappers::default(),
 			vector_cache: VectorCache::new(hnsw_cache_size),
 		}))
@@ -62,6 +67,20 @@ impl IndexStores {
 	) -> Result<SharedHnswIndex> {
 		let ikb = IndexKeyBase::new(ns, db, ix.table_name.clone(), ix.index_id);
 		self.0.hnsw_indexes.get(ctx, tb, &ikb, p).await
+	}
+
+	/// Returns the process-local QORTEX wrapper for an index, creating it on first access.
+	pub(crate) async fn get_index_qortex(
+		&self,
+		ns: NamespaceId,
+		db: DatabaseId,
+		ctx: &FrozenContext,
+		tb: TableId,
+		ix: &IndexDefinition,
+		p: &QortexParams,
+	) -> Result<SharedQortexIndex> {
+		let ikb = IndexKeyBase::new(ns, db, ix.table_name.clone(), ix.index_id);
+		self.0.qortex_indexes.get(ctx, tb, &ikb, p).await
 	}
 
 	/// Returns the process-local DiskANN wrapper for an index, creating it and sharing the cache.
@@ -104,6 +123,10 @@ impl IndexStores {
 			let ikb = IndexKeyBase::new(ns, db, ix.table_name.clone(), ix.index_id);
 			self.remove_hnsw_index(tb, ikb).await?;
 		}
+		if matches!(ix.index, Index::Qortex(_)) {
+			let ikb = IndexKeyBase::new(ns, db, ix.table_name.clone(), ix.index_id);
+			self.remove_qortex_index(tb, ikb).await?;
+		}
 		#[cfg(diskann)]
 		if matches!(ix.index, Index::DiskAnn(_)) {
 			let ikb = IndexKeyBase::new(ns, db, ix.table_name.clone(), ix.index_id);
@@ -116,6 +139,12 @@ impl IndexStores {
 	pub(crate) async fn remove_hnsw_index(&self, tb: TableId, ikb: IndexKeyBase) -> Result<()> {
 		self.0.hnsw_indexes.remove(tb, &ikb).await?;
 		self.0.vector_cache.remove_index(ikb.ns(), ikb.db(), tb, ikb.index()).await;
+		Ok(())
+	}
+
+	/// Drops the process-local QORTEX wrapper for one table index.
+	pub(crate) async fn remove_qortex_index(&self, tb: TableId, ikb: IndexKeyBase) -> Result<()> {
+		self.0.qortex_indexes.remove(tb, &ikb).await?;
 		Ok(())
 	}
 

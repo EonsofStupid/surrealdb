@@ -33,6 +33,7 @@ use crate::idx::planner::{IterationStage, ScanDirection};
 #[cfg(diskann)]
 use crate::idx::trees::store::diskann::SharedDiskAnnIndex;
 use crate::idx::trees::store::hnsw::SharedHnswIndex;
+use crate::idx::trees::store::qortex::SharedQortexIndex;
 use crate::val::{Array, Number, Object, RecordId, TableName, Value};
 
 pub(super) type KnnBruteForceEntry = (KnnPriorityList, Idiom, Arc<Vec<Number>>, Distance);
@@ -68,6 +69,7 @@ pub(crate) struct QueryExecutor(Arc<InnerQueryExecutor>);
 enum PerIndexReferenceIndex {
 	FullText(FullTextIndex),
 	Hnsw(SharedHnswIndex),
+	Qortex(SharedQortexIndex),
 	#[cfg(diskann)]
 	DiskAnn(SharedDiskAnnIndex),
 }
@@ -77,6 +79,7 @@ enum PerIndexReferenceIndex {
 enum PerExpressionEntry {
 	FullText(FullTextEntry),
 	Hnsw(HnswEntry),
+	Qortex(QortexEntry),
 	#[cfg(diskann)]
 	DiskAnn(DiskAnnEntry),
 	KnnBruteForce(KnnBruteForceEntry),
@@ -260,6 +263,70 @@ impl InnerQueryExecutor {
 						};
 						if let Some(he) = he {
 							exp_entries.insert(exp, PerExpressionEntry::Hnsw(he));
+						}
+					}
+				}
+				Index::Qortex(p) => {
+					if let IndexOperator::Ann(a, k, ef) = io.op() {
+						let qe = match ir_map.entry(index_reference.clone()) {
+							Entry::Occupied(e) => {
+								if let PerIndexReferenceIndex::Qortex(qi) = e.get() {
+									Some(
+										QortexEntry::new(
+											stk,
+											ctx,
+											opt,
+											Arc::clone(qi),
+											a,
+											*k,
+											*ef,
+											knn_condition.clone(),
+										)
+										.await?,
+									)
+								} else {
+									None
+								}
+							}
+							Entry::Vacant(e) => {
+								let tb = ctx
+									.tx()
+									.expect_tb(
+										doc_ctx.ns().namespace_id,
+										doc_ctx.db().database_id,
+										&index_reference.table_name,
+									)
+									.await?;
+								let qi = ctx
+									.get_index_stores()
+									.get_index_qortex(
+										doc_ctx.ns().namespace_id,
+										doc_ctx.db().database_id,
+										ctx,
+										tb.table_id,
+										index_reference,
+										p,
+									)
+									.await?;
+								// Ensure the local segment is up to date with the KVS.
+								qi.check_state(ctx).await?;
+								let entry = QortexEntry::new(
+									stk,
+									ctx,
+									opt,
+									Arc::clone(&qi),
+									a,
+									*k,
+									*ef,
+									knn_condition.clone(),
+								)
+								.await?;
+								e.insert(PerIndexReferenceIndex::Qortex(qi));
+								Some(entry)
+							}
+						};
+						if let Some(qe) = qe {
+							exp_entries.insert(exp, PerExpressionEntry::Qortex(qe));
 						}
 					}
 				}
@@ -474,9 +541,7 @@ impl QueryExecutor {
 			Index::DiskAnn(_) => Ok(self.new_diskann_index_ann_iterator(irf)),
 			#[cfg(not(diskann))]
 			Index::DiskAnn(_) => Err(anyhow::anyhow!("DISKANN indexes require a 64-bit, non-WASM platform")),
-			Index::Qortex(_) => Err(anyhow::anyhow!(
-				"QORTEX index read not yet wired (Inc 3) — see docs/QORTEX_FUSION_BUILD_SPEC.md"
-			)),
+			Index::Qortex(_) => Ok(self.new_qortex_index_ann_iterator(irf)),
 		}
 	}
 
@@ -741,6 +806,16 @@ impl QueryExecutor {
 		None
 	}
 
+	fn new_qortex_index_ann_iterator(&self, ir: IteratorRef) -> Option<RecordIterator> {
+		if let Some(IteratorEntry::Single(Some(exp), ..)) = self.0.it_entries.get(ir)
+			&& let Some(PerExpressionEntry::Qortex(qe)) = self.0.exp_entries.get(exp)
+		{
+			let it = KnnIterator::new(ir, qe.res.clone());
+			return Some(RecordIterator::Knn(it));
+		}
+		None
+	}
+
 	#[cfg(diskann)]
 	fn new_diskann_index_ann_iterator(&self, ir: IteratorRef) -> Option<RecordIterator> {
 		if let Some(IteratorEntry::Single(Some(exp), ..)) = self.0.it_entries.get(ir)
@@ -982,6 +1057,32 @@ impl HnswEntry {
 	) -> Result<Self> {
 		let cond_filter = cond.map(|cond| (opt, cond));
 		let res = h.knn_search(ctx, stk, v, n as usize, ef as usize, cond_filter).await?;
+		Ok(Self {
+			res,
+		})
+	}
+}
+
+/// Execution-time QORTEX KNN results for one expression.
+#[derive(Clone)]
+pub(super) struct QortexEntry {
+	res: VecDeque<KnnIteratorResult>,
+}
+
+impl QortexEntry {
+	#[expect(clippy::too_many_arguments)]
+	async fn new(
+		stk: &mut Stk,
+		ctx: &FrozenContext,
+		opt: &Options,
+		q: SharedQortexIndex,
+		v: &[Number],
+		n: u32,
+		ef: u32,
+		cond: Option<Arc<Cond>>,
+	) -> Result<Self> {
+		let cond_filter = cond.map(|cond| (opt, cond));
+		let res = q.knn_search(ctx, stk, v, n as usize, ef as usize, cond_filter).await?;
 		Ok(Self {
 			res,
 		})
