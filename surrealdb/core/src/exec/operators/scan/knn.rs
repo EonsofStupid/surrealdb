@@ -350,6 +350,54 @@ impl ExecOperator for KnnScan {
 					)))?;
 					unreachable!()
 				}
+				Index::Qortex(qortex_params) => {
+					// Obtain the shared qortex index
+					let qortex_index = frozen_ctx
+						.get_index_stores()
+						.get_index_qortex(
+							ns.namespace_id,
+							db.database_id,
+							frozen_ctx,
+							table_id,
+							index_def,
+							qortex_params,
+						)
+						.await
+						.context("Failed to get qortex index")?;
+
+					// Ensure the qortex segment reflects committed KV state
+					qortex_index
+						.check_state(frozen_ctx)
+						.await
+						.context("Failed to check qortex index state")?;
+
+					let cond_filter = match (residual_cond.clone(), ctx.options()) {
+						(Some(cond), Some(opt)) => Some((opt, Arc::new(cond))),
+						_ => None,
+					};
+
+					let mut stack = TreeStack::new();
+					stack
+						.enter(|stk| {
+							let qortex_index = &qortex_index;
+							let vector = &vector;
+							async move {
+								qortex_index
+									.knn_search(
+										frozen_ctx,
+										stk,
+										vector,
+										k as usize,
+										ef as usize,
+										cond_filter,
+									)
+									.await
+							}
+						})
+						.finish()
+						.await
+						.context("qortex KNN search failed")?
+				}
 				_ => {
 					Err(ControlFlow::Err(anyhow::anyhow!(
 						"Index '{}' is not an ANN index",

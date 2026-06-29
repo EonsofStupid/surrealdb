@@ -1199,6 +1199,15 @@ impl<'a> IndexAnalyzer<'a> {
 					}
 					user_ef.unwrap_or_else(|| k.max(diskann.l_build as u32))
 				}
+				Index::Qortex(qortex) => {
+					if let Some(d) = required_distance
+						&& *d != qortex.distance
+					{
+						continue;
+					}
+					// qortex has no ef_construction; its exact-index path ignores ef.
+					user_ef.unwrap_or(k)
+				}
 				_ => continue,
 			};
 
