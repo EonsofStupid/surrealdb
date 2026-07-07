@@ -48,15 +48,13 @@ jobs:
           merge_base_status=0
           git merge-base HEAD upstream/main >/dev/null 2>&1 || merge_base_status=$?
           if [ "$merge_base_status" -gt 1 ]; then
-            echo "::error::Unable to determine the merge base with upstream/main. Check repository access, git state, and network connectivity, then retry the workflow."
+            echo "::error::git merge-base failed with exit code $merge_base_status. Check repository access, git state, and network connectivity, then retry the workflow."
             exit "$merge_base_status"
           fi
           if [ "$merge_base_status" -eq 1 ]; then
             echo "::notice::No shared history with upstream/main."
             echo "::notice::Manually reconcile the histories once before automatic sync can continue."
-            echo "::notice::Example: git remote add upstream https://github.com/surrealdb/surrealdb.git"
-            echo "::notice::Example: git fetch upstream main"
-            echo "::notice::Example: git merge --allow-unrelated-histories upstream/main"
+            echo "::notice::See the job summary for the manual bootstrap commands."
             {
               echo "updated=false"
               echo "manual=true"
@@ -104,7 +102,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          issues_enabled="$(gh api "repos/$GH_REPO" --jq '.has_issues')"
+          if ! issues_enabled="$(gh api "repos/$GH_REPO" --jq '.has_issues')"; then
+            echo "::error::Unable to determine whether GitHub Issues are enabled for $GH_REPO"
+            exit 1
+          fi
           if [ "$issues_enabled" != "true" ]; then
             echo "GitHub Issues are disabled for $GH_REPO, skipping issue creation"
             exit 0
