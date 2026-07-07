@@ -48,13 +48,15 @@ jobs:
           merge_base_status=0
           git merge-base HEAD upstream/main >/dev/null 2>&1 || merge_base_status=$?
           if [ "$merge_base_status" -gt 1 ]; then
-            echo "::error::Unable to determine merge base with upstream/main"
+            echo "::error::Unable to determine the merge base with upstream/main. Check repository access, git state, and network connectivity, then retry the workflow."
             exit "$merge_base_status"
           fi
           if [ "$merge_base_status" -eq 1 ]; then
             echo "::notice::No shared history with upstream/main."
             echo "::notice::Manually reconcile the histories once before automatic sync can continue."
-            echo "::notice::For example: git merge --allow-unrelated-histories upstream/main"
+            echo "::notice::Example: git remote add upstream https://github.com/surrealdb/surrealdb.git"
+            echo "::notice::Example: git fetch upstream main"
+            echo "::notice::Example: git merge --allow-unrelated-histories upstream/main"
             {
               echo "updated=false"
               echo "manual=true"
