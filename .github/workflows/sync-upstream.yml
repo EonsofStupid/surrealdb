@@ -48,7 +48,7 @@ jobs:
           merge_base_status=0
           git merge-base HEAD upstream/main >/dev/null 2>&1 || merge_base_status=$?
           if [ "$merge_base_status" -gt 1 ]; then
-            echo "::error::git merge-base failed with exit code $merge_base_status. Check repository access, git state, and network connectivity, then retry the workflow."
+            echo "::error::git merge-base encountered an error (exit code $merge_base_status). This usually indicates invalid arguments, corrupted repository state, or another git/runtime failure. Review the workflow logs and repository state, then retry the workflow."
             exit "$merge_base_status"
           fi
           if [ "$merge_base_status" -eq 1 ]; then
@@ -103,7 +103,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           if ! issues_enabled="$(gh api "repos/$GH_REPO" --jq '.has_issues')"; then
-            echo "::error::Unable to determine whether GitHub Issues are enabled for $GH_REPO"
+            echo "::error::Unable to determine whether GitHub Issues are enabled for $GH_REPO. This may be caused by missing permissions, API rate limiting, or a transient GitHub/network failure. Check the workflow logs for the gh api error details."
             exit 1
           fi
           if [ "$issues_enabled" != "true" ]; then
