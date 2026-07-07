@@ -46,7 +46,11 @@ jobs:
           git remote add upstream https://github.com/surrealdb/surrealdb.git
           git fetch upstream main
           if ! git merge-base HEAD upstream/main >/dev/null; then
-            echo "No shared history with upstream/main; manually reconcile the histories once (for example with git merge --allow-unrelated-histories upstream/main) before automatic sync can continue."
+            cat <<'EOF'
+            No shared history with upstream/main.
+            Manually reconcile the histories once before automatic sync can continue.
+            For example: git merge --allow-unrelated-histories upstream/main
+            EOF
             {
               echo "updated=false"
               echo "manual=true"
@@ -82,6 +86,7 @@ jobs:
           Reconcile the histories manually once, then rerun this workflow. For example:
 
           ```bash
+          git remote add upstream https://github.com/surrealdb/surrealdb.git
           git fetch upstream main
           git merge --allow-unrelated-histories upstream/main
           ```
