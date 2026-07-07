@@ -45,11 +45,17 @@ jobs:
         run: |
           git remote add upstream https://github.com/surrealdb/surrealdb.git
           git fetch upstream main
-          if ! git merge-base HEAD upstream/main >/dev/null; then
+          merge_base_status=0
+          git merge-base HEAD upstream/main >/dev/null 2>&1 || merge_base_status=$?
+          if [ "$merge_base_status" -gt 1 ]; then
+            echo "::error::Unable to determine merge base with upstream/main"
+            exit "$merge_base_status"
+          fi
+          if [ "$merge_base_status" -eq 1 ]; then
             cat <<'EOF'
-            No shared history with upstream/main.
-            Manually reconcile the histories once before automatic sync can continue.
-            For example: git merge --allow-unrelated-histories upstream/main
+            INFO: No shared history with upstream/main.
+            INFO: Manually reconcile the histories once before automatic sync can continue.
+            INFO: For example: git merge --allow-unrelated-histories upstream/main
             EOF
             {
               echo "updated=false"
@@ -98,7 +104,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          if ! gh api "repos/$GH_REPO" --jq '.has_issues' | grep -qx 'true'; then
+          has_issues="$(gh api "repos/$GH_REPO" --jq '.has_issues')"
+          if [ "$has_issues" != "true" ]; then
             echo "GitHub Issues are disabled for $GH_REPO, skipping issue creation"
             exit 0
           fi
