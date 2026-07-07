@@ -52,11 +52,9 @@ jobs:
             exit "$merge_base_status"
           fi
           if [ "$merge_base_status" -eq 1 ]; then
-            cat <<'EOF'
-            INFO: No shared history with upstream/main.
-            INFO: Manually reconcile the histories once before automatic sync can continue.
-            INFO: For example: git merge --allow-unrelated-histories upstream/main
-            EOF
+            echo "::notice::No shared history with upstream/main."
+            echo "::notice::Manually reconcile the histories once before automatic sync can continue."
+            echo "::notice::For example: git merge --allow-unrelated-histories upstream/main"
             {
               echo "updated=false"
               echo "manual=true"
@@ -104,8 +102,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          has_issues="$(gh api "repos/$GH_REPO" --jq '.has_issues')"
-          if [ "$has_issues" != "true" ]; then
+          issues_enabled="$(gh api "repos/$GH_REPO" --jq '.has_issues')"
+          if [ "$issues_enabled" != "true" ]; then
             echo "GitHub Issues are disabled for $GH_REPO, skipping issue creation"
             exit 0
           fi
