@@ -45,17 +45,56 @@ jobs:
         run: |
           git remote add upstream https://github.com/surrealdb/surrealdb.git
           git fetch upstream main
+          merge_base_status=0
+          git merge-base HEAD upstream/main >/dev/null 2>&1 || merge_base_status=$?
+          if [ "$merge_base_status" -gt 1 ]; then
+            echo "::error::git merge-base encountered an error (exit code $merge_base_status). This usually indicates invalid arguments, corrupted repository state, or another git/runtime failure. Review the workflow logs and repository state, then retry the workflow."
+            exit "$merge_base_status"
+          fi
+          if [ "$merge_base_status" -eq 1 ]; then
+            echo "::notice::No shared history with upstream/main."
+            echo "::notice::Manually reconcile the histories once before automatic sync can continue."
+            echo "::notice::See the job summary for the manual bootstrap commands."
+            {
+              echo "updated=false"
+              echo "manual=true"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if git merge-base --is-ancestor upstream/main HEAD; then
             echo "Already up to date"
-            echo "updated=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "updated=false"
+              echo "manual=false"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git merge upstream/main --no-edit --log
-          echo "updated=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "updated=true"
+            echo "manual=false"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Push to origin main
         if: steps.pull.outputs.updated == 'true'
         run: git push origin main
+
+      - name: Report manual sync bootstrap required
+        if: steps.pull.outputs.manual == 'true'
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Automatic upstream sync skipped
+
+          This repository's `main` branch does not share history with `surrealdb/surrealdb`'s `main` branch, so the scheduled workflow cannot merge upstream automatically.
+
+          Reconcile the histories manually once, then rerun this workflow. For example:
+
+          ```bash
+          git remote add upstream https://github.com/surrealdb/surrealdb.git
+          git fetch upstream main
+          git merge --allow-unrelated-histories upstream/main
+          ```
+          EOF
 
       - name: Notify on merge failure
         if: failure() && steps.pull.outcome == 'failure'
@@ -63,6 +102,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          if ! issues_enabled="$(gh api "repos/$GH_REPO" --jq '.has_issues')"; then
+            echo "::error::Unable to determine whether GitHub Issues are enabled for $GH_REPO. This may be caused by missing permissions, API rate limiting, or a transient GitHub/network failure. Check the workflow logs for the gh api error details."
+            exit 1
+          fi
+          if [ "$issues_enabled" != "true" ]; then
+            echo "GitHub Issues are disabled for $GH_REPO, skipping issue creation"
+            exit 0
+          fi
           if gh issue list --label "upstream-sync" --state open --json number --jq 'length' | grep -qv '^0$'; then
             echo "An open upstream sync failure issue already exists, skipping"
             exit 0
