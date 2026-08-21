@@ -1,0 +1,4 @@
+[submodule "apps/connectome"]
+	path = apps/connectome
+	url = https://github.com/EonsofStupid/surrealist.git
+	branch = main
